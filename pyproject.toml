@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cfpb-pipeline"
+version = "0.1.0"
+description = "CFPB consumer complaints ELT pipeline: API -> S3 -> Snowflake -> dbt -> Streamlit"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.32",
+    "boto3>=1.34",
+    "tenacity>=8.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "responses>=0.25",
+    "moto[s3]>=5.0",
+    "ruff>=0.6",
+    "sqlfluff>=3.0",
+]
+dbt = [
+    "dbt-core>=1.9,<2.0",
+    "dbt-snowflake>=1.9,<2.0",
+]
+dashboard = [
+    "streamlit>=1.38",
+    "snowflake-connector-python[pandas]>=3.12",
+    "snowflake-snowpark-python>=1.20",
+    "plotly>=5.22",
+    "pandas>=2.2",
+]
+
+[tool.setuptools.packages.find]
+include = ["ingestion*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["ingestion/tests"]

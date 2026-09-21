@@ -1,0 +1,32 @@
+version: 2
+
+seeds:
+  - name: company_reference
+    description: >
+      Maps raw CFPB company names to a parent brand and company type. Covers the
+      ~80 largest companies (the vast majority of complaints); unmapped companies
+      fall back to their raw name with company_type = 'other'.
+    config:
+      column_types:
+        company: varchar
+        parent_company: varchar
+        company_type: varchar
+    columns:
+      - name: company
+        data_tests: [unique, not_null]
+      - name: company_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [bank, credit_bureau, fintech, debt_collector, loan_servicer,
+                         mortgage_servicer, auto_lender, consumer_lender]
+
+  - name: state_reference
+    description: US states, DC and Puerto Rico with census region and 2020 population.
+    config:
+      column_types:
+        state: varchar(2)
+        population_2020: number
+    columns:
+      - name: state
+        data_tests: [unique, not_null]

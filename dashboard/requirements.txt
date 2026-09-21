@@ -1,0 +1,6 @@
+# Used by Streamlit Community Cloud when deploying dashboard/app.py
+streamlit>=1.38
+snowflake-connector-python[pandas]>=3.12
+snowflake-snowpark-python>=1.20
+plotly>=5.22
+pandas>=2.2

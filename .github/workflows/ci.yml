@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Lint & test (Python, SQL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,dbt]"
+      - run: ruff check . && ruff format --check .
+      - run: pytest -q
+      - run: sqlfluff lint dbt/models dbt/tests
+      - name: dbt parse (no warehouse needed)
+        working-directory: dbt
+        env:
+          DBT_PROFILES_DIR: .
+          SNOWFLAKE_ACCOUNT: ci-placeholder
+          SNOWFLAKE_USER: ci-placeholder
+        run: dbt deps && dbt parse
+
+  dbt:
+    name: dbt build (PR schema)
+    # Needs Snowflake secrets; skipped until they are configured in the repo settings.
+    if: github.event_name == 'pull_request' && vars.SNOWFLAKE_ENABLED == 'true'
+    needs: python
+    runs-on: ubuntu-latest
+    env:
+      DBT_PROFILES_DIR: .
+      DBT_TARGET: dev
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      SNOWFLAKE_ROLE: TRANSFORMER
+      SNOWFLAKE_WAREHOUSE: TRANSFORM_WH
+      SNOWFLAKE_DATABASE: ANALYTICS
+      SNOWFLAKE_SCHEMA: PR_${{ github.event.number }}
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e "..[dbt]"
+      - run: dbt deps
+
+      - name: Download prod manifest (for slim CI)
+        id: prod_state
+        continue-on-error: true
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: docs.yml
+          branch: main
+          name: prod-manifest
+          path: dbt/prod-artifacts
+
+      - name: dbt source freshness
+        run: dbt source freshness
+        continue-on-error: true
+
+      - name: dbt build (modified models + children)
+        if: steps.prod_state.outcome == 'success'
+        run: dbt build --select state:modified+ --defer --state prod-artifacts
+
+      - name: dbt build (full; no prod state yet)
+        if: steps.prod_state.outcome != 'success'
+        run: dbt build --empty
+
+      - name: Drop PR schemas
+        if: always()
+        run: >
+          dbt run-operation drop_pr_schemas
+          --args "{prefix: 'PR_${{ github.event.number }}'}"

@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: rpt_company_monthly
+    description: Complaint volume and response metrics per parent company per month.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [company_key, month]
+    columns:
+      - name: timely_pct
+        description: Share of complaints with a timely company response.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: relief_pct
+        description: Share of closed complaints resolved with monetary or non-monetary relief.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: median_days_to_close_observed
+        description: Snapshot-based; NULL until the pipeline has observed closes for that month.
+
+  - name: rpt_product_trends
+    description: Monthly complaints per product group with MoM and YoY comparisons.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [product_group, month]
+
+  - name: rpt_state_monthly
+    description: Monthly complaints per state, with 2020 population for per-capita rates.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [state, month]
+    columns:
+      - name: state_population_2020
+        data_tests: [not_null]

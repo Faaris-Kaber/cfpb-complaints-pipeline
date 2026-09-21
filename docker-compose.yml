@@ -1,0 +1,37 @@
+# Local Airflow for development: one container running `airflow standalone`
+# (API server + scheduler + dag processor + triggerer, SQLite metadata DB).
+# UI: http://localhost:8080. The admin password is printed in the logs and saved to
+# airflow/simple_auth_manager_passwords.json.generated.
+#
+#   docker compose up --build
+#
+services:
+  airflow:
+    build: ./airflow
+    command: standalone
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/airflow/dags
+      AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+      # Snowflake connection for COPY INTO, built from .env values.
+      AIRFLOW_CONN_SNOWFLAKE_DEFAULT: >-
+        {"conn_type": "snowflake",
+         "login": "${SNOWFLAKE_USER}",
+         "schema": "CFPB",
+         "extra": {"account": "${SNOWFLAKE_ACCOUNT}",
+                   "warehouse": "TRANSFORM_WH",
+                   "database": "RAW",
+                   "role": "LOADER",
+                   "private_key_file": "/opt/airflow/secrets/rsa_key.p8"}}
+      SNOWFLAKE_PRIVATE_KEY_PATH: /opt/airflow/secrets/rsa_key.p8
+      AWS_SHARED_CREDENTIALS_FILE: /opt/airflow/secrets/aws/credentials
+      AWS_CONFIG_FILE: /opt/airflow/secrets/aws/config
+    volumes:
+      - .:/opt/airflow/project
+      - ./airflow/logs:/opt/airflow/logs
+      # Point these at your real key and AWS config (kept out of the repo).
+      - ${SNOWFLAKE_PRIVATE_KEY_PATH:-./secrets/rsa_key.p8}:/opt/airflow/secrets/rsa_key.p8:ro
+      - ${USERPROFILE:-~}/.aws:/opt/airflow/secrets/aws:ro

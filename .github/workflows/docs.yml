@@ -1,0 +1,57 @@
+name: dbt docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  docs:
+    # Needs Snowflake secrets; skipped until they are configured in the repo settings.
+    if: vars.SNOWFLAKE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      DBT_PROFILES_DIR: .
+      DBT_TARGET: prod
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      SNOWFLAKE_ROLE: TRANSFORMER
+      SNOWFLAKE_WAREHOUSE: TRANSFORM_WH
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dbt]"
+      - name: Generate docs
+        working-directory: dbt
+        run: dbt deps && dbt docs generate --static
+
+      - name: Save prod manifest for slim CI
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-manifest
+          path: dbt/target/manifest.json
+          retention-days: 30
+
+      - name: Stage site
+        run: mkdir site && cp dbt/target/static_index.html site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

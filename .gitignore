@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Secrets / local config
+.env
+dashboard/.streamlit/secrets.toml
+*.p8
+*.pem
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/.user.yml
+logs/
+prod-artifacts/
+
+# Airflow (local docker)
+airflow/logs/
+airflow/plugins/
+airflow/config/
+
+# Local data
+data/
+*.zip
+*.json.gz
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

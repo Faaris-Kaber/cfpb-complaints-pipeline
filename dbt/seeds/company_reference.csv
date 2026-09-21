@@ -1,0 +1,78 @@
+company,parent_company,company_type
+"TRANSUNION INTERMEDIATE HOLDINGS, INC.",TransUnion,credit_bureau
+"EQUIFAX, INC.",Equifax,credit_bureau
+Experian Information Solutions Inc.,Experian,credit_bureau
+LEXISNEXIS,LexisNexis,credit_bureau
+CL Holdings LLC,Credit Lock (CL Holdings),credit_bureau
+"Early Warning Services, LLC",Early Warning Services,credit_bureau
+"ID Analytics, Inc.",ID Analytics,credit_bureau
+CORELOGIC INC,CoreLogic,credit_bureau
+"BANK OF AMERICA, NATIONAL ASSOCIATION",Bank of America,bank
+JPMORGAN CHASE & CO.,JPMorgan Chase,bank
+WELLS FARGO & COMPANY,Wells Fargo,bank
+CAPITAL ONE FINANCIAL CORPORATION,Capital One,bank
+"CITIBANK, N.A.",Citibank,bank
+SYNCHRONY FINANCIAL,Synchrony,bank
+AMERICAN EXPRESS COMPANY,American Express,bank
+U.S. BANCORP,U.S. Bank,bank
+NAVY FEDERAL CREDIT UNION,Navy Federal Credit Union,bank
+"Bread Financial Holdings, Inc.",Bread Financial,bank
+DISCOVER BANK,Discover,bank
+TD BANK US HOLDING COMPANY,TD Bank,bank
+PNC Bank N.A.,PNC,bank
+ALLY FINANCIAL INC.,Ally,bank
+BARCLAYS BANK DELAWARE,Barclays US,bank
+TRUIST FINANCIAL CORPORATION,Truist,bank
+"SUNTRUST BANKS, INC.",Truist,bank
+GOLDMAN SACHS BANK USA,Goldman Sachs,bank
+UNITED SERVICES AUTOMOBILE ASSOCIATION,USAA,bank
+"CITIZENS FINANCIAL GROUP, INC.",Citizens,bank
+"SANTANDER HOLDINGS USA, INC.",Santander,bank
+Santander Consumer USA Holdings Inc.,Santander,bank
+FIFTH THIRD FINANCIAL CORPORATION,Fifth Third,bank
+HSBC NORTH AMERICA HOLDINGS INC.,HSBC,bank
+M&T BANK CORPORATION,M&T Bank,bank
+REGIONS FINANCIAL CORPORATION,Regions,bank
+"HUNTINGTON NATIONAL BANK, THE",Huntington,bank
+"Block, Inc.",Block (Cash App),fintech
+"Paypal Holdings, Inc",PayPal,fintech
+Chime Financial Inc,Chime,fintech
+"Affirm Holdings, Inc",Affirm,fintech
+Self Financial Inc.,Self Financial,fintech
+"Coinbase, Inc.",Coinbase,fintech
+"Fidelity National Information Services, Inc. (FNIS)",FIS,fintech
+Resurgent Capital Services L.P.,Resurgent Capital,debt_collector
+ENCORE CAPITAL GROUP INC.,Encore Capital,debt_collector
+"Portfolio Recovery Associates, LLC",Portfolio Recovery Associates,debt_collector
+"CBC Companies, Inc.",CBC Companies,debt_collector
+"CCS Financial Services, Inc.",CCS Financial,debt_collector
+"I.C. System, Inc.",I.C. System,debt_collector
+TRANSWORLD SYSTEMS INC,Transworld Systems,debt_collector
+"National Credit Systems,Inc.",National Credit Systems,debt_collector
+"CAINE & WEINER COMPANY, INC.",Caine & Weiner,debt_collector
+ERC,ERC,debt_collector
+"National Credit Adjusters, LLC",National Credit Adjusters,debt_collector
+"Spring Oaks Capital, LLC",Spring Oaks Capital,debt_collector
+"Convergent Resources, Inc.",Convergent Resources,debt_collector
+Radius Global Solutions LLC,Radius Global Solutions,debt_collector
+"Navient Solutions, LLC.",Navient,loan_servicer
+MOHELA,MOHELA,loan_servicer
+"Nelnet, Inc.",Nelnet,loan_servicer
+AES/PHEAA,AES/PHEAA,loan_servicer
+EdFinancial Services,Edfinancial,loan_servicer
+"Maximus Federal Services, Inc.",Maximus,loan_servicer
+Ocwen Financial Corporation,Ocwen,mortgage_servicer
+"Shellpoint Partners, LLC",Shellpoint,mortgage_servicer
+NATIONSTAR MORTGAGE LLC,Mr. Cooper,mortgage_servicer
+Mr. Cooper Group Inc.,Mr. Cooper,mortgage_servicer
+Ditech Financial LLC,Ditech,mortgage_servicer
+"SELECT PORTFOLIO SERVICING, INC.",Select Portfolio Servicing,mortgage_servicer
+Specialized Loan Servicing Holdings LLC,Specialized Loan Servicing,mortgage_servicer
+Freedom Mortgage Company,Freedom Mortgage,mortgage_servicer
+"Rocket Mortgage, LLC",Rocket Mortgage,mortgage_servicer
+CREDIT ACCEPTANCE CORPORATION,Credit Acceptance,auto_lender
+"Westlake Services, LLC",Westlake Financial,auto_lender
+"General Motors Financial Company, Inc.",GM Financial,auto_lender
+"Exeter Finance, LLC.",Exeter Finance,auto_lender
+TOYOTA MOTOR CREDIT CORPORATION,Toyota Financial Services,auto_lender
+OneMain Finance Corporation,OneMain,consumer_lender

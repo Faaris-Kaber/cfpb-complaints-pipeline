@@ -1,0 +1,64 @@
+version: 2
+
+models:
+  - name: stg_cfpb__complaints
+    description: >
+      One row per complaint (latest extracted version), typed and cleaned.
+      Incremental merge on complaint_id from newly loaded raw rows.
+    columns:
+      - name: complaint_id
+        description: CFPB complaint ID (primary key).
+        data_tests: [unique, not_null]
+      - name: date_received
+        description: Date the CFPB received the complaint.
+        data_tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "<= current_date()"
+      - name: date_sent_to_company
+        description: Date the CFPB forwarded the complaint to the company.
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: ">= date_received"
+              config:
+                where: "date_sent_to_company is not null"
+                severity: warn
+      - name: company
+        data_tests: [not_null]
+      - name: product
+        data_tests: [not_null]
+      - name: state
+        description: Two-letter state or territory code, upper-cased.
+        data_tests:
+          - dbt_expectations.expect_column_values_to_match_regex:
+              arguments:
+                regex: "^[A-Z]{2}$"
+              config:
+                where: "state is not null"
+      - name: submitted_via
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Web, Referral, Phone, Postal mail, Fax, Email, Web Referral]
+              config:
+                severity: warn
+      - name: company_response
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - Closed with explanation
+                  - Closed with non-monetary relief
+                  - Closed with monetary relief
+                  - Closed with relief
+                  - Closed without relief
+                  - Closed
+                  - In progress
+                  - Untimely response
+      - name: is_timely_response
+        description: CFPB's "Timely response?" flag (company responded within 15 days).
+      - name: loaded_at
+        description: When the winning raw row was loaded; drives downstream incremental models.
+        data_tests: [not_null]

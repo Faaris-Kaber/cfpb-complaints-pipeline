@@ -1,0 +1,39 @@
+[sqlfluff]
+dialect = snowflake
+# The jinja templater lints without a warehouse connection (the dbt templater
+# needs one), which keeps the lint step in CI fast and credential-free.
+templater = jinja
+max_line_length = 120
+exclude_rules = LT05, ST06, AM04, RF04, ST05, RF02
+large_file_skip_byte_limit = 40000
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True
+load_macros_from_path = dbt/macros
+library_path = dbt/sqlfluff_libs
+
+[sqlfluff:templater:jinja:context]
+target = {"name": "dev", "schema": "dev"}
+
+[sqlfluff:indentation]
+tab_space_size = 4
+indented_joins = False
+implicit_indents = allow
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:aliasing.table]
+aliasing = explicit
+
+[sqlfluff:rules:aliasing.column]
+aliasing = explicit
+
+# Allow column aliases to be aligned in a column.
+[sqlfluff:layout:type:alias_expression]
+spacing_before = align
+align_within = select_clause
+align_scope = bracketed
