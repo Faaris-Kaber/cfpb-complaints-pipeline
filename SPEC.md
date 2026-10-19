@@ -35,7 +35,7 @@ Build a production-style ELT pipeline that ingests the CFPB Consumer Complaint D
 ```
 CFPB Complaints API ──► Python extractor ──► S3 (raw, partitioned NDJSON.gz)
                               │                         │
-                       watermark in S3            Snowflake external stage
+                       watermark in S3        Python loader → internal stage
                                                         │  COPY INTO
                                                         ▼
                                               RAW.CFPB.COMPLAINTS (VARIANT)
@@ -110,7 +110,7 @@ CFPB/
 
 - Bucket: `cfpb-complaints-<suffix>` with versioning on and SSE-S3 encryption
 - Lifecycle: move `raw/` to Infrequent Access after 90 days
-- IAM: one role for the extractor (write `raw/` and `state/`) and one for the Snowflake storage integration (read-only)
+- Access: the extractor and loader use the developer's `aws login` session (short-lived, auto-refreshing). No IAM users or access keys.
 
 ---
 
@@ -123,19 +123,24 @@ CFPB/
 | Warehouse | `TRANSFORM_WH` (XS, auto-suspend 60s) |
 | Databases | `RAW`, `ANALYTICS` (dev schemas per developer, `PROD` schemas for the scheduled run) |
 | Roles | `LOADER`, `TRANSFORMER`, `REPORTER` |
-| Storage integration | `S3_CFPB_INT` |
 | File format | `JSON_GZ` (`TYPE=JSON, COMPRESSION=GZIP, STRIP_OUTER_ARRAY=FALSE`) |
-| Stage | `RAW.CFPB.CFPB_STAGE` → `s3://<bucket>/raw/cfpb/` |
+| Stage | `RAW.CFPB.CFPB_STAGE` (internal; see §4.2 for why) |
 | Raw table | `RAW.CFPB.COMPLAINTS (record VARIANT, _file STRING, _file_row INT, _loaded_at TIMESTAMP_NTZ)` |
 
 ### 4.2 Load
 
+The AWS account is a "new AWS experience" project, and its AWS-managed resource control policy denies `s3:*` and `sts:*` to principals outside the AWS organization. That rules out a Snowflake storage integration, because Snowflake's IAM user can't assume a role in the account. Instead, `ingestion/snowflake_loader.py` runs with our own AWS credentials:
+
+1. List the partition's files in S3 and download them in batches of 20.
+2. `PUT` each batch to `@RAW.CFPB.CFPB_STAGE/<partition>/` (already gzipped, so `AUTO_COMPRESS = FALSE`).
+3. Run `COPY INTO RAW.CFPB.COMPLAINTS ... PURGE = TRUE`. Daily loads use `FORCE = TRUE`; the backfill uses `FORCE = FALSE`.
+
 ```sql
 COPY INTO RAW.CFPB.COMPLAINTS (record, _file, _file_row, _loaded_at)
 FROM (SELECT $1, METADATA$FILENAME, METADATA$FILE_ROW_NUMBER, CURRENT_TIMESTAMP()
-      FROM @RAW.CFPB.CFPB_STAGE/incremental/load_date={{ ds }}/)
-FILE_FORMAT = (FORMAT_NAME = 'JSON_GZ')
-ON_ERROR = 'ABORT_STATEMENT';
+      FROM @RAW.CFPB.CFPB_STAGE/incremental/load_date=2026-10-18/)
+FILE_FORMAT = (FORMAT_NAME = 'RAW.CFPB.JSON_GZ')
+ON_ERROR = 'ABORT_STATEMENT' PURGE = TRUE FORCE = TRUE;
 ```
 
 The raw table is append-only. Deduplication happens in dbt.
@@ -265,13 +270,13 @@ Surrogate keys come from `dbt_utils.generate_surrogate_key`.
 **DAG:** `cfpb_daily`. Schedule `0 9 * * *` (UTC), `catchup=False`, `max_active_runs=1`, 2 retries with a 10-minute delay.
 
 ```
-extract_to_s3 ─► copy_into_snowflake ─► dbt_source_freshness ─► dbt_snapshot ─► dbt_build ─► dbt_docs_generate
+extract_to_s3 ─► load_to_snowflake ─► dbt_source_freshness ─► dbt_build (incl. snapshot) ─► dbt_docs_generate
 ```
 
 | Task | Operator |
 |---|---|
 | `extract_to_s3` | `PythonOperator` (calls `ingestion.cfpb_extract.run(mode="incremental", load_date=ds)`) |
-| `copy_into_snowflake` | `SQLExecuteQueryOperator` (Snowflake connection) |
+| `load_to_snowflake` | `@task` calling `ingestion.snowflake_loader.load_partition` |
 | `dbt_*` | Cosmos `DbtTaskGroup` or `BashOperator` |
 
 - Runs locally with `docker-compose` (Airflow 3.3, single `airflow standalone` container, with dbt in its own virtualenv). Optionally runs on MWAA or Astronomer.
@@ -315,7 +320,7 @@ extract_to_s3 ─► copy_into_snowflake ─► dbt_source_freshness ─► dbt_
 
 | # | Deliverable | Done when |
 |---|---|---|
-| M1 | AWS and Snowflake setup | Stage lists S3 files; `setup.sql` is committed |
+| M1 | AWS and Snowflake setup | Bucket exists; loader can PUT and COPY; `setup.sql` is committed |
 | M2 | Backfill | Full history in `RAW.CFPB.COMPLAINTS`; row count noted |
 | M3 | Incremental extractor | Watermark plus lookback works and pytest passes |
 | M4 | dbt staging and intermediate layers | `dbt build` is green |

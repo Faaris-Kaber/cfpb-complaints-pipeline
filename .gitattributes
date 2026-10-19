@@ -1,0 +1,7 @@
+# Keep LF everywhere so files mounted into Linux containers (Airflow, dbt) and
+# the Makefile behave the same on Windows checkouts.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.zip binary
+*.gz binary

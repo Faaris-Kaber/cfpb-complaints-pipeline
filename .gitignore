@@ -12,6 +12,7 @@ venv/
 dashboard/.streamlit/secrets.toml
 *.p8
 *.pem
+secrets/
 
 # dbt
 dbt/target/

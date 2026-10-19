@@ -27,8 +27,8 @@ def query(sql: str, params: tuple | None = None) -> pd.DataFrame:
 
 
 def in_list(values: list[str]) -> tuple[str, tuple]:
-    """Build a `%s, %s, ...` placeholder string for an IN clause."""
-    return ", ".join(["%s"] * len(values)), tuple(values)
+    """Build a `?, ?, ...` placeholder string for an IN clause."""
+    return ", ".join(["?"] * len(values)), tuple(values)
 
 
 # ---------------------------------------------------------------- filters
@@ -46,7 +46,7 @@ companies = query(
     """
     select parent_company, sum(complaints) as complaints
     from rpt_company_monthly
-    where month between %s and %s and (is_bank or not %s)
+    where month between ? and ? and (is_bank or not ?)
     group by 1 order by 2 desc
     """,
     (start, end, banks_only),
@@ -75,7 +75,7 @@ monthly = query(
     select month, parent_company, complaints, timely_responses, relief_count,
            in_progress_count, median_days_to_close_observed, closes_observed
     from rpt_company_monthly
-    where month between %s and %s and parent_company in ({ph})
+    where month between ? and ? and parent_company in ({ph})
     """,
     base_params,
 )
@@ -84,23 +84,29 @@ total = int(monthly["complaints"].sum())
 closed = total - int(monthly["in_progress_count"].sum())
 timely_pct = monthly["timely_responses"].sum() / total if total else 0
 relief_pct = monthly["relief_count"].sum() / closed if closed else 0
-by_month = monthly.groupby("month", as_index=False)["complaints"].sum().sort_values("month")
+# The current month is still filling up; trends and MoM use complete months only.
+month_to_date = date.today().replace(day=1)
+complete = monthly[monthly["month"] < month_to_date]
+by_month = complete.groupby("month", as_index=False)["complaints"].sum().sort_values("month")
 mom = (
     (by_month["complaints"].iloc[-1] / by_month["complaints"].iloc[-2] - 1)
     if len(by_month) >= 2 and by_month["complaints"].iloc[-2]
     else None
 )
+mom_label = (
+    f"{by_month['month'].iloc[-1]:%b %Y} vs prior month" if len(by_month) else "Month vs prior"
+)
 
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Complaints", f"{total:,}")
-k2.metric("Latest month vs prior", f"{mom:+.1%}" if mom is not None else "n/a")
+k2.metric(mom_label, f"{mom:+.1%}" if mom is not None else "n/a")
 k3.metric("Timely response", f"{timely_pct:.1%}")
 k4.metric("Closed with relief", f"{relief_pct:.1%}")
 
 # ---------------------------------------------------------------- trends
 st.subheader("Monthly complaints")
 fig = px.line(
-    monthly.sort_values("month"),
+    complete.sort_values("month"),
     x="month",
     y="complaints",
     color="parent_company",
@@ -108,6 +114,7 @@ fig = px.line(
 )
 fig.update_layout(legend_title_text="", hovermode="x unified")
 st.plotly_chart(fig, use_container_width=True)
+st.caption(f"Complete months only; {month_to_date:%B %Y} is still in progress.")
 
 # ---------------------------------------------------------------- leaderboard
 st.subheader("Company leaderboard")
@@ -129,7 +136,7 @@ close_times = query(
     select c.parent_company, median(f.days_to_close_observed) as median_days_to_close
     from fct_complaints f
     join dim_company c on f.company_key = c.company_key
-    where f.date_received_key between %s and last_day(%s) and c.parent_company in ({ph})
+    where f.date_received_key between ? and last_day(?) and c.parent_company in ({ph})
     group by 1
     """,
     base_params,
@@ -137,17 +144,13 @@ close_times = query(
 board = board.merge(close_times, on="parent_company", how="left").sort_values(
     "complaints", ascending=False
 )
+# Days to close only exists once the snapshot has seen complaints close.
+has_close_data = board["closes_observed"].sum() > 0
+board_cols = ["parent_company", "complaints", "timely_pct", "relief_pct"]
+if has_close_data:
+    board_cols += ["median_days_to_close", "closes_observed"]
 st.dataframe(
-    board[
-        [
-            "parent_company",
-            "complaints",
-            "timely_pct",
-            "relief_pct",
-            "median_days_to_close",
-            "closes_observed",
-        ]
-    ],
+    board[board_cols],
     hide_index=True,
     use_container_width=True,
     column_config={
@@ -165,10 +168,17 @@ st.dataframe(
         "closes_observed": st.column_config.NumberColumn("Closes observed*", format="%d"),
     },
 )
-st.caption(
-    "*The public data has no close date. Days to close are measured from daily snapshots, "
-    "so they only cover complaints the pipeline saw move from “In progress” to closed."
-)
+if has_close_data:
+    st.caption(
+        "*The public data has no close date. Days to close are measured from daily snapshots, "
+        "so they only cover complaints the pipeline saw move from “In progress” to closed."
+    )
+else:
+    st.caption(
+        "Days to close: the public data has no close date, so the pipeline snapshots each "
+        "complaint's status daily. This column appears once complaints it saw “In progress” "
+        "start closing."
+    )
 
 # ---------------------------------------------------------------- product x company
 left, right = st.columns(2)
@@ -181,7 +191,7 @@ with left:
         from fct_complaints f
         join dim_company c on f.company_key = c.company_key
         join dim_product p on f.product_key = p.product_key
-        where f.date_received_key between %s and last_day(%s) and c.parent_company in ({ph})
+        where f.date_received_key between ? and last_day(?) and c.parent_company in ({ph})
         group by 1, 2
         """,
         base_params,
@@ -204,7 +214,7 @@ with right:
         from fct_complaints f
         join dim_company c on f.company_key = c.company_key
         join dim_issue i on f.issue_key = i.issue_key
-        where f.date_received_key between %s and last_day(%s) and c.parent_company = %s
+        where f.date_received_key between ? and last_day(?) and c.parent_company = ?
         group by 1 order by 2 desc limit 10
         """,
         (start, end, focus),
@@ -218,10 +228,10 @@ st.subheader("Complaints per 100k residents")
 states = query(
     """
     select state, state_name,
-           sum(iff(%s, bank_complaints, complaints)) as complaints,
+           sum(iff(?, bank_complaints, complaints)) as complaints,
            max(state_population_2020) as population
     from rpt_state_monthly
-    where month between %s and %s
+    where month between ? and ?
     group by 1, 2
     """,
     (banks_only, start, end),

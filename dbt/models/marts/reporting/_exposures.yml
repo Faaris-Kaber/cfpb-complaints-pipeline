@@ -1,0 +1,19 @@
+version: 2
+
+exposures:
+  - name: bank_complaints_dashboard
+    label: Bank Complaints Dashboard
+    type: dashboard
+    maturity: medium
+    description: >
+      Streamlit app comparing companies on complaint volume, timely-response
+      rate, relief rate and observed days to close (dashboard/app.py).
+    owner:
+      name: Faaris Kaber
+    depends_on:
+      - ref('rpt_company_monthly')
+      - ref('rpt_state_monthly')
+      - ref('fct_complaints')
+      - ref('dim_company')
+      - ref('dim_product')
+      - ref('dim_issue')

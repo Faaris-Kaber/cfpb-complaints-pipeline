@@ -1,6 +1,6 @@
 -- =============================================================================
 -- CFPB pipeline: one-time Snowflake setup
--- Run as ACCOUNTADMIN (or SYSADMIN + SECURITYADMIN). Replace the <PLACEHOLDERS>.
+-- Run as ACCOUNTADMIN (or SYSADMIN + SECURITYADMIN). Replace the <PASTE ...> keys.
 -- =============================================================================
 
 -- ---------- Warehouse ----------
@@ -50,6 +50,7 @@ GRANT SELECT ON FUTURE VIEWS IN SCHEMA ANALYTICS.PROD TO ROLE REPORTER;
 
 -- ---------- Service users (key-pair auth; no passwords) ----------
 -- Generate keys locally:
+--   (save them as secrets/cfpb_svc.p8/.pub and secrets/cfpb_dashboard.p8/.pub; secrets/ is git-ignored)
 --   openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out rsa_key.p8 -nocrypt
 --   openssl rsa -in rsa_key.p8 -pubout -out rsa_key.pub
 CREATE USER IF NOT EXISTS CFPB_SVC
@@ -65,19 +66,12 @@ CREATE USER IF NOT EXISTS CFPB_DASHBOARD
   RSA_PUBLIC_KEY = '<PASTE dashboard public key>';
 GRANT ROLE REPORTER TO USER CFPB_DASHBOARD;
 
--- ---------- S3 storage integration ----------
-USE ROLE ACCOUNTADMIN;
-CREATE STORAGE INTEGRATION IF NOT EXISTS S3_CFPB_INT
-  TYPE = EXTERNAL_STAGE
-  STORAGE_PROVIDER = 'S3'
-  ENABLED = TRUE
-  STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::<AWS_ACCOUNT_ID>:role/snowflake-cfpb-read'
-  STORAGE_ALLOWED_LOCATIONS = ('s3://<S3_BUCKET>/raw/cfpb/');
-
--- Copy STORAGE_AWS_IAM_USER_ARN and STORAGE_AWS_EXTERNAL_ID from this output
--- into the trust policy of the IAM role above.
-DESC INTEGRATION S3_CFPB_INT;
-GRANT USAGE ON INTEGRATION S3_CFPB_INT TO ROLE LOADER;
+-- ---------- Why there is no S3 storage integration ----------
+-- The AWS account is a "new AWS experience" project. Its AWS-managed resource
+-- control policy denies s3:* and sts:* to principals outside the AWS
+-- organization, so Snowflake cannot assume an IAM role to read the bucket.
+-- Instead ingestion/snowflake_loader.py (running with our own AWS credentials)
+-- downloads each S3 partition, PUTs it to the internal stage below, and COPYs it.
 
 -- ---------- File format, stage, raw table ----------
 USE ROLE LOADER;
@@ -89,9 +83,8 @@ CREATE FILE FORMAT IF NOT EXISTS JSON_GZ
   COMPRESSION = GZIP
   STRIP_OUTER_ARRAY = FALSE;
 
+-- Internal stage: the loader PUTs files here and COPY ... PURGE = TRUE removes them.
 CREATE STAGE IF NOT EXISTS CFPB_STAGE
-  STORAGE_INTEGRATION = S3_CFPB_INT
-  URL = 's3://<S3_BUCKET>/raw/cfpb/'
   FILE_FORMAT = JSON_GZ;
 
 CREATE TABLE IF NOT EXISTS COMPLAINTS (
@@ -100,6 +93,3 @@ CREATE TABLE IF NOT EXISTS COMPLAINTS (
   _file_row   NUMBER,
   _loaded_at  TIMESTAMP_NTZ
 );
-
--- Smoke test: should list files once the extractor has run.
-LIST @CFPB_STAGE;

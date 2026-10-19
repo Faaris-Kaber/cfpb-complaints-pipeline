@@ -1,0 +1,11 @@
+{
+  "Rules": [
+    {
+      "ID": "raw-to-infrequent-access",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "raw/" },
+      "Transitions": [{ "Days": 90, "StorageClass": "STANDARD_IA" }],
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 30 }
+    }
+  ]
+}

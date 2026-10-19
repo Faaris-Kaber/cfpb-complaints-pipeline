@@ -7,7 +7,7 @@ dashboard compares banks on complaint volume, timeliness and resolution.
 
 ```
 CFPB API / bulk CSV ──► Python extractor ──► S3 (gzip NDJSON, partitioned by load_date)
-                                                   │ COPY INTO
+                                                   │ Python loader: PUT to internal stage, COPY INTO
                                                    ▼
                                      Snowflake RAW.CFPB.COMPLAINTS (VARIANT)
                                                    │ dbt
@@ -23,8 +23,9 @@ See [SPEC.md](SPEC.md) for the full design.
 
 | Path | What |
 |---|---|
-| `ingestion/` | API client (search_after pagination, retries), bulk CSV backfill, S3 writer, watermark, CLI; `tests/` with mocked API + S3 |
-| `snowflake/` | One-time setup (warehouse, roles, storage integration, stage, raw table) and the COPY template |
+| `ingestion/` | API client (search_after pagination, retries), bulk CSV backfill, S3 writer, watermark, S3 → Snowflake loader; `tests/` with mocked API, S3 and Snowflake |
+| `snowflake/` | One-time setup (warehouse, roles, service users, internal stage, raw table) |
+| `aws/` | Bucket setup script (versioning, encryption, lifecycle, public access block) |
 | `dbt/` | Models (staging → intermediate → marts), snapshot, seeds, macros, 66 tests |
 | `airflow/` | `cfpb_daily` DAG and Docker image (Airflow 3 + isolated dbt venv) |
 | `dashboard/` | Streamlit app reading the marts |
@@ -60,17 +61,18 @@ cd dbt && DBT_PROFILES_DIR=. SNOWFLAKE_ACCOUNT=x SNOWFLAKE_USER=x dbt deps && db
 
 ### 2. Cloud setup
 
-1. **AWS:** create the bucket, an IAM user or role for the extractor (write to `raw/` and `state/`), and an IAM role Snowflake can assume (read `raw/cfpb/`).
-2. **Snowflake:** generate a key pair and run `snowflake/setup.sql`, then copy the integration's IAM user ARN and external ID into the AWS role's trust policy.
+1. **AWS:** sign in with `aws login`, then run `BUCKET=<name> REGION=<region> ./aws/setup_aws.sh` to create the bucket. The extractor and loader use your `aws login` session, so there are no access keys.
+2. **Snowflake:** generate key pairs into `secrets/`, paste the public keys into `snowflake/setup.sql`, and run it as ACCOUNTADMIN.
 3. Copy `.env.example` to `.env` and fill it in.
 
 ### 3. First load
 
 ```bash
-python -m ingestion.cfpb_extract --mode backfill        # ~350 MB CSV -> S3
-# In Snowflake, run snowflake/copy_into_raw.sql with path = 'backfill/' and force = FALSE
-python -m ingestion.cfpb_extract --mode incremental     # last 30 days from the API
-cd dbt && dbt deps && dbt seed && dbt build
+python -m ingestion.cfpb_extract --mode backfill                  # ~350 MB CSV -> S3
+python -m ingestion.snowflake_loader --path backfill/ --no-force  # S3 -> Snowflake RAW
+python -m ingestion.cfpb_extract --mode incremental               # last 30 days from the API
+python -m ingestion.snowflake_loader --path incremental/load_date=<today>/
+cd dbt && dbt deps && dbt build
 ```
 
 ### 4. Run daily
@@ -89,3 +91,16 @@ These were verified against the live API in Oct 2026:
 - `date_received_min` and `date_received_max` are inclusive. The extractor walks one day at a time.
 - The bulk export is only published as `complaints.csv.zip`. Its headers are mapped to API field names, so both sources land in the same shape.
 - Each daily run re-pulls the last 30 days, so status changes such as "In progress" → "Closed" get captured. Staging dedupes on `complaint_id`.
+
+## Why Snowflake doesn't read S3 directly
+
+The usual pattern is a Snowflake storage integration that assumes an IAM role to
+read the bucket. This AWS account is a "new AWS experience" project, and its
+AWS-managed resource control policy denies `s3:*` and `sts:*` to any principal
+outside the AWS organization. Snowflake's IAM user is outside it, so the role
+can't be assumed, and the policy can't be edited.
+
+So the load step runs on our side instead: `ingestion/snowflake_loader.py` uses
+our own AWS credentials to read each S3 partition, `PUT`s the files to a Snowflake
+internal stage, and runs `COPY INTO ... PURGE = TRUE`. S3 remains the raw landing
+zone and system of record, and no long-lived AWS keys are stored in Snowflake.

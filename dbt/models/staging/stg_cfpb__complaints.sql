@@ -33,7 +33,11 @@ typed as (
         {{ clean_string("record:issue") }}                         as issue,
         {{ clean_string("record:sub_issue") }}                     as sub_issue,
         {{ clean_string("record:company") }}                       as company,
-        upper({{ clean_string("record:state") }})                  as state,
+        -- CFPB spells out one territory instead of using its USPS code.
+        case upper({{ clean_string("record:state") }})
+            when 'UNITED STATES MINOR OUTLYING ISLANDS' then 'UM'
+            else upper({{ clean_string("record:state") }})
+        end                                                        as state,
         {{ clean_string("record:zip_code") }}                      as zip_code,
         {{ clean_string("record:submitted_via") }}                 as submitted_via,
         {{ clean_string("record:company_response") }}              as company_response,

@@ -1,10 +1,10 @@
 FROM apache/airflow:3.3.2-python3.12
 
-# Providers and the ingestion package's dependencies go in Airflow's environment.
+# The ingestion package's dependencies go in Airflow's environment.
 RUN pip install --no-cache-dir \
     "apache-airflow==${AIRFLOW_VERSION}" \
-    "apache-airflow-providers-snowflake" \
-    "requests>=2.32" "boto3>=1.34" "tenacity>=8.2"
+    "requests>=2.32" "boto3[crt]>=1.34" "tenacity>=8.2" \
+    "snowflake-connector-python>=3.12"
 
 # dbt gets its own virtualenv so its pins never fight Airflow's.
 RUN python -m venv /home/airflow/dbt-venv \

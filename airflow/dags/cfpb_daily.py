@@ -1,9 +1,8 @@
 """Daily CFPB pipeline: API -> S3 -> Snowflake RAW -> dbt -> marts.
 
 Runs on Airflow 3. Expected configuration (see docker-compose.yml / .env):
-- connection `snowflake_default` (AIRFLOW_CONN_SNOWFLAKE_DEFAULT) for COPY INTO
-- AWS credentials for the extractor (mounted ~/.aws profile or env vars)
-- S3_BUCKET and SNOWFLAKE_* env vars for the extractor and dbt
+- AWS credentials for the extractor and loader (mounted ~/.aws from `aws login`)
+- S3_BUCKET and SNOWFLAKE_* env vars (key-pair auth) for the loader and dbt
 - optional SLACK_WEBHOOK_URL for failure alerts
 """
 
@@ -13,7 +12,6 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.sdk import dag, task
 
@@ -59,7 +57,6 @@ default_args = {
     catchup=False,
     max_active_runs=1,
     default_args=default_args,
-    template_searchpath=[str(PROJECT_ROOT / "snowflake")],
     tags=["cfpb", "elt"],
 )
 def cfpb_daily():
@@ -71,11 +68,13 @@ def cfpb_daily():
 
         return run(mode="incremental", load_date=date.fromisoformat(ds))
 
-    copy_into_snowflake = SQLExecuteQueryOperator(
-        task_id="copy_into_snowflake",
-        conn_id="snowflake_default",
-        sql="copy_into_raw.sql",
-    )
+    @task(execution_timeout=timedelta(minutes=30))
+    def load_to_snowflake(ds: str | None = None) -> dict:
+        # S3 partition -> Snowflake internal stage -> COPY INTO RAW.CFPB.COMPLAINTS.
+        # force=True: re-runs reload the partition; staging dedupes on complaint_id.
+        from ingestion.snowflake_loader import load_partition
+
+        return load_partition(f"incremental/load_date={ds}/", force=True)
 
     source_freshness = BashOperator(
         task_id="dbt_source_freshness",
@@ -102,7 +101,7 @@ def cfpb_daily():
         trigger_rule="all_done",
     )
 
-    extract_to_s3() >> copy_into_snowflake >> source_freshness >> dbt_build >> dbt_docs
+    extract_to_s3() >> load_to_snowflake() >> source_freshness >> dbt_build >> dbt_docs
 
 
 cfpb_daily()
