@@ -11,7 +11,10 @@
     {% set find_sql %}
         select schema_name
         from {{ target.database }}.information_schema.schemata
-        where schema_name ilike '{{ prefix }}%'
+        -- Exact match or prefix + '_'. A plain LIKE 'PR_1%' would also match PR_10..PR_19
+        -- (and '_' is a LIKE wildcard), dropping other pull requests' schemas.
+        where upper(schema_name) = upper('{{ prefix }}')
+            or startswith(upper(schema_name), upper('{{ prefix }}') || '_')
     {% endset %}
 
     {% for schema in run_query(find_sql).columns[0].values() %}

@@ -6,7 +6,7 @@ models:
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
-            combination_of_columns: [company_key, month]
+            combination_of_columns: [parent_company, month]
     columns:
       - name: timely_pct
         description: Share of complaints with a timely company response.

@@ -1,0 +1,43 @@
+# Dashboard theme. Neutral surfaces, one blue accent, hairline borders, and a
+# colorblind-validated 8-color chart palette (light and dark steps of the same hues).
+
+[client]
+# No Deploy button or developer menu for viewers.
+toolbarMode = "minimal"
+
+[theme]
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, system-ui, sans-serif"
+headingFontWeights = [600, 600, 600]
+headingFontSizes = ["1.6rem", "1.1rem", "1rem"]
+baseFontSize = 14
+baseRadius = "0.5rem"
+showWidgetBorder = true
+showSidebarBorder = true
+
+[theme.light]
+primaryColor = "#2a78d6"
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f3f3f0"
+textColor = "#1b1b19"
+linkColor = "#1c5cab"
+borderColor = "#e1e0d9"
+dataframeBorderColor = "#e1e0d9"
+chartCategoricalColors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
+chartSequentialColors = ["#eef4fc", "#cde2fb", "#b7d3f6", "#9ec5f4", "#6da7ec", "#3987e5", "#2a78d6", "#1c5cab", "#104281", "#0d366b"]
+
+[theme.light.sidebar]
+backgroundColor = "#f6f6f3"
+
+[theme.dark]
+primaryColor = "#3987e5"
+backgroundColor = "#141413"
+secondaryBackgroundColor = "#1f1f1e"
+textColor = "#f0efec"
+linkColor = "#86b6ef"
+borderColor = "#2e2e2c"
+dataframeBorderColor = "#2e2e2c"
+chartCategoricalColors = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"]
+chartSequentialColors = ["#162a45", "#184f95", "#1c5cab", "#256abf", "#2a78d6", "#3987e5", "#5598e7", "#6da7ec", "#86b6ef", "#b7d3f6"]
+
+[theme.dark.sidebar]
+backgroundColor = "#1a1a19"

@@ -4,6 +4,7 @@ import json
 import zipfile
 from datetime import date
 
+import pytest
 import responses
 
 from ingestion.backfill import iter_csv_records
@@ -26,6 +27,11 @@ def test_incremental_window_uses_watermark_minus_lookback():
     assert incremental_window(date(2026, 10, 10), date(2026, 10, 12), 30) == (
         date(2026, 9, 10),
         date(2026, 10, 12),
+    )
+    # Re-running a load_date older than the lookback still gives a valid window.
+    assert incremental_window(date(2026, 10, 10), date(2026, 8, 1), 30) == (
+        date(2026, 7, 2),
+        date(2026, 8, 1),
     )
     # No watermark yet: fall back to load_date - lookback.
     assert incremental_window(None, date(2026, 10, 12), 2) == (
@@ -70,17 +76,63 @@ def test_incremental_run_writes_partition_and_advances_watermark(s3, settings):
 
 @responses.activate
 def test_rerun_replaces_partition(s3, settings):
+    # settings.lookback_days=2 and no watermark: the window is 3 days, one hit per day.
     responses.get(API_URL, json=make_page([make_hit(1, "2026-10-12")], total=1))
+    part = "raw/cfpb/incremental/load_date=2026-10-12/"
+    s3.put_object(Bucket=BUCKET, Key=part + "part-00009.json.gz", Body=b"stale")
     for _ in range(2):
-        run(
-            mode="incremental",
-            load_date=date(2026, 10, 12),
-            start=date(2026, 10, 12),
-            end=date(2026, 10, 12),
-            settings=settings,
-            s3=s3,
-        )
-    assert len(_read_all(s3, "raw/cfpb/incremental/load_date=2026-10-12/")) == 1
+        summary = run(mode="incremental", load_date=date(2026, 10, 12), settings=settings, s3=s3)
+    assert summary["partition"] == "incremental/load_date=2026-10-12/"
+    keys = [o["Key"] for o in s3.list_objects_v2(Bucket=BUCKET, Prefix=part)["Contents"]]
+    assert part + "part-00009.json.gz" not in keys  # stale file from an older run removed
+    assert len(_read_all(s3, part)) == 3
+    assert s3.list_objects_v2(Bucket=BUCKET, Prefix="raw/cfpb/_staging/")["KeyCount"] == 0
+
+
+@responses.activate
+def test_failed_fetch_keeps_existing_partition(s3, settings):
+    part = "raw/cfpb/incremental/load_date=2026-10-12/"
+    s3.put_object(Bucket=BUCKET, Key=part + "part-00000.json.gz", Body=b"previous run")
+    responses.get(API_URL, status=400)  # not retryable: fails on the first day
+    with pytest.raises(Exception):  # noqa: B017
+        run(mode="incremental", load_date=date(2026, 10, 12), settings=settings, s3=s3)
+    obj = s3.get_object(Bucket=BUCKET, Key=part + "part-00000.json.gz")["Body"].read()
+    assert obj == b"previous run"
+    assert s3.list_objects_v2(Bucket=BUCKET, Prefix="raw/cfpb/_staging/")["KeyCount"] == 0
+
+
+@responses.activate
+def test_custom_window_gets_its_own_partition(s3, settings):
+    responses.get(API_URL, json=make_page([make_hit(1, "2026-09-01")], total=1))
+    daily = "raw/cfpb/incremental/load_date=2026-10-12/"
+    s3.put_object(Bucket=BUCKET, Key=daily + "part-00000.json.gz", Body=b"scheduled")
+    summary = run(
+        mode="incremental",
+        load_date=date(2026, 10, 12),
+        start=date(2026, 9, 1),
+        end=date(2026, 9, 1),
+        settings=settings,
+        s3=s3,
+    )
+    assert summary["partition"] == "incremental/window=2026-09-01_2026-09-01/"
+    assert s3.get_object(Bucket=BUCKET, Key=daily + "part-00000.json.gz")["Body"].read() == (
+        b"scheduled"
+    )
+
+
+def test_end_without_start_is_rejected(s3, settings):
+    with pytest.raises(ValueError, match="both"):
+        run(mode="incremental", end=date(2026, 10, 1), settings=settings, s3=s3)
+
+
+@responses.activate
+def test_lookback_override_widens_window(s3, settings):
+    write_watermark(s3, BUCKET, settings.state_key, date(2026, 10, 12), rows=0)
+    responses.get(API_URL, json=make_page([], total=0))
+    summary = run(
+        mode="incremental", load_date=date(2026, 10, 12), lookback_days=90, settings=settings, s3=s3
+    )
+    assert summary["window"] == ("2026-07-14", "2026-10-12")
 
 
 def test_csv_headers_map_to_api_fields(tmp_path):
@@ -114,3 +166,18 @@ def test_backfill_run_uses_local_zip(s3, settings, tmp_path):
     rows = _read_all(s3, "raw/cfpb/backfill/")
     assert {r["_source"] for r in rows} == {"bulk_csv"}
     assert read_watermark(s3, BUCKET, settings.state_key) == date(2024, 1, 2)
+
+
+def test_invalid_window_does_not_delete_existing_partition(s3, settings):
+    prefix = "raw/cfpb/incremental/load_date=2026-10-12/"
+    s3.put_object(Bucket=BUCKET, Key=prefix + "part-00000.json.gz", Body=b"keep")
+    with pytest.raises(ValueError):
+        run(
+            mode="incremental",
+            load_date=date(2026, 10, 12),
+            start=date(2026, 10, 12),
+            end=date(2026, 10, 1),
+            settings=settings,
+            s3=s3,
+        )
+    assert s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)["KeyCount"] == 1

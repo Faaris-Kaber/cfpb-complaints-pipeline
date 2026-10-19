@@ -1,30 +1,40 @@
 # Local Airflow for development: one container running `airflow standalone`
 # (API server + scheduler + dag processor + triggerer, SQLite metadata DB).
 # UI: http://localhost:8080. The admin password is printed in the logs and saved to
-# airflow/simple_auth_manager_passwords.json.generated.
+# /opt/airflow/simple_auth_manager_passwords.json.generated inside the container.
 #
-#   docker compose up --build
+#   docker compose up --build -d
 #
 services:
   airflow:
     build: ./airflow
     command: standalone
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     env_file: .env
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/airflow/dags
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
       AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
       # Paths inside the container (override the Windows paths in .env).
       SNOWFLAKE_PRIVATE_KEY_PATH: /opt/airflow/secrets/rsa_key.p8
       AWS_CONFIG_FILE: /opt/airflow/secrets/aws/config
       AWS_SHARED_CREDENTIALS_FILE: /opt/airflow/secrets/aws/credentials
       AWS_LOGIN_CACHE_DIRECTORY: /opt/airflow/secrets/aws/login/cache
+      # `default` = your `aws login` session (expires after <= 12h, fine for manual runs).
+      # For unattended daily runs set PIPELINE_AWS_PROFILE=cfpb-pipeline in .env
+      # (see README "Credentials for scheduled runs").
+      AWS_PROFILE: ${PIPELINE_AWS_PROFILE:-default}
     volumes:
+      # Metadata DB, generated admin password and config survive container re-creation.
+      - airflow-home:/opt/airflow
       - .:/opt/airflow/project
       - ./airflow/logs:/opt/airflow/logs
       # Snowflake service-user key (kept out of the repo in secrets/).
       - ./secrets/cfpb_svc.p8:/opt/airflow/secrets/rsa_key.p8:ro
-      # AWS config from `aws login`. Read-write: the CLI session refreshes its cache here.
+      # AWS config. Read-write: an `aws login` session refreshes its cache here.
       - ${USERPROFILE:-~}/.aws:/opt/airflow/secrets/aws
+
+volumes:
+  airflow-home:

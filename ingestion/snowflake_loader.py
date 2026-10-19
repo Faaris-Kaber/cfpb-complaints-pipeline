@@ -55,7 +55,7 @@ def copy_sql(stage_path: str, force: bool) -> str:
                 $1,
                 metadata$filename,
                 metadata$file_row_number,
-                current_timestamp()::timestamp_ntz
+                sysdate()  -- UTC; current_timestamp() would be session-local time
             from @{STAGE}/{stage_path}
         )
         file_format = (format_name = '{FILE_FORMAT}')
@@ -81,8 +81,6 @@ def load_partition(
     """
     settings = settings or Settings.from_env()
     s3 = s3 or boto3.client("s3", region_name=settings.aws_region)
-    own_conn = conn is None
-    conn = conn or connect()
     path = path.strip("/") + "/"
     prefix = f"{settings.raw_prefix}/{path}"
     t0 = time.monotonic()
@@ -96,6 +94,10 @@ def load_partition(
     if not keys:
         raise FileNotFoundError(f"no .json.gz files under s3://{settings.s3_bucket}/{prefix}")
 
+    # Connect only once there is something to load, so a failed S3 listing can't
+    # leak a Snowflake session.
+    own_conn = conn is None
+    conn = conn or connect()
     rows_loaded = 0
     files_loaded = 0
     cur = conn.cursor()

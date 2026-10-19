@@ -29,7 +29,7 @@ select
 
     -- Foreign keys
     date_received                                                      as date_received_key,
-    {{ dbt_utils.generate_surrogate_key(['parent_company']) }}         as company_key,
+    {{ dbt_utils.generate_surrogate_key(['company']) }}                as company_key,
     {{ dbt_utils.generate_surrogate_key(['product', 'sub_product']) }} as product_key,
     {{ dbt_utils.generate_surrogate_key(['issue', 'sub_issue']) }}     as issue_key,
     {{ dbt_utils.generate_surrogate_key(['state', 'zip3']) }}          as geography_key,

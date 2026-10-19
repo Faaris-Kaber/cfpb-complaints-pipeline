@@ -19,6 +19,8 @@ class Settings:
     raw_prefix: str = "raw/cfpb"
     state_key: str = "state/cfpb_watermark.json"
     lookback_days: int = 30
+    # Weekly re-pull window: complaint statuses settle about 60 days after receipt.
+    deep_lookback_days: int = 90
     page_size: int = MAX_PAGE_SIZE
     rows_per_file: int = 100_000
 
@@ -34,6 +36,7 @@ class Settings:
             raw_prefix=os.environ.get("S3_RAW_PREFIX", "raw/cfpb").strip("/"),
             state_key=os.environ.get("S3_STATE_KEY", "state/cfpb_watermark.json"),
             lookback_days=int(os.environ.get("LOOKBACK_DAYS", 30)),
+            deep_lookback_days=int(os.environ.get("DEEP_LOOKBACK_DAYS", 90)),
             page_size=min(page_size, MAX_PAGE_SIZE),
             rows_per_file=int(os.environ.get("ROWS_PER_FILE", 100_000)),
         )

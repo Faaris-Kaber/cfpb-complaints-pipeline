@@ -93,3 +93,13 @@ select
     source_file,
     loaded_at
 from deduped
+{% if is_incremental() %}
+    -- A reloaded older partition must not replace a newer version already merged.
+    where not exists (
+            select 1
+            from {{ this }} as existing
+            where
+                existing.complaint_id = deduped.complaint_id
+                and existing.extracted_at > deduped.extracted_at
+        )
+{% endif %}
