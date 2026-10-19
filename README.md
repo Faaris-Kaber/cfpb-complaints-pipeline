@@ -5,7 +5,7 @@ End-to-end ELT pipeline over the [CFPB Consumer Complaint Database](https://www.
 models it into a tested star schema, **Airflow** runs it daily, and a **Streamlit**
 dashboard compares banks on complaint volume, timeliness and resolution.
 
-![Dashboard](docs/images/dashboard_top.png)
+![Dashboard overview: KPI cards, monthly complaints by bank, company scorecard](docs/images/dashboard_overview.png)
 
 ```
 CFPB API / bulk CSV ──► Python extractor ──► S3 (gzip NDJSON, partitioned by load_date)
@@ -26,9 +26,9 @@ CFPB API / bulk CSV ──► Python extractor ──► S3 (gzip NDJSON, partit
 
 | | |
 |---|---|
-| Complaints loaded | 18,504,768 (2011 → today), plus ~600k re-pulled daily (~1.8M on Sundays) to catch status changes |
+| Complaints loaded | 18,514,327 as of Oct 19, 2026 (Dec 2011 onward), plus ~600k re-pulled daily (~1.8M on Sundays) to catch status changes |
 | Daily pipeline | ~3 minutes end to end: API → S3 → Snowflake → `dbt build` |
-| dbt | 14 models, 1 snapshot, 2 seeds, **66 data tests** + source freshness; prod build ~30s on an XS warehouse |
+| dbt | 14 models, 1 snapshot, 2 seeds, **67 data tests** + source freshness; prod build ~30s on an XS warehouse |
 | Python | 24 pytest tests (API, S3 and Snowflake mocked); ruff + sqlfluff in CI |
 
 A few things the data shows (2025, banks only):
@@ -36,7 +36,27 @@ A few things the data shows (2025, banks only):
 - Citibank closed **52%** of complaints with relief, against 14–29% for its peers.
 - In January 2025, complaints against Capital One jumped 4× (1,887 → 7,601) and against Navy Federal almost 10× (873 → 8,302), then fell back the next month.
 
-![Full dashboard](docs/images/dashboard_full.png)
+## Dashboard
+
+The Streamlit app reads the marts in `ANALYTICS.PROD` with a read-only role. Every
+chart has a **Data** menu that shows the numbers behind it.
+
+- **Filters:** period (12M, 24M, YTD, All, or a custom month range), banks or all
+  companies, and up to 8 companies. A company keeps its color while it stays selected.
+- **KPI cards:** complaints, the latest complete month against the one before,
+  timely-response rate and relief rate, each with a 12-month sparkline.
+- **Overview:** monthly complaints per company (complete months only) and a scorecard
+  with timely, relief and in-progress rates.
+- **Products & issues:** product mix per company (share or count), the top 10 issues,
+  and year-over-year change by product for the latest complete month.
+- **Geography:** complaints per 100,000 residents by state (2020 census).
+- Light and dark themes, set in [`.streamlit/config.toml`](.streamlit/config.toml).
+
+| Products & issues | Geography |
+|---|---|
+| ![Product mix heatmap, top issues and year-over-year change](docs/images/dashboard_products.png) | ![Complaints per 100k residents by state](docs/images/dashboard_geography.png) |
+| **Company picker** | **Dark theme** |
+| ![Company picker with top-5/top-8 shortcuts](docs/images/dashboard_picker.png) | ![Overview in the dark theme](docs/images/dashboard_dark.png) |
 
 ## dbt lineage
 
@@ -46,7 +66,10 @@ A few things the data shows (2025, banks only):
 **Dimensions:** `dim_date`, `dim_company` (one row per legal entity, with its parent brand),
 `dim_product` (with a `product_group` stable across CFPB renames), `dim_issue`,
 `dim_geography` (state + ZIP3, with population), `dim_submission_channel`.
-**Reporting:** `rpt_company_monthly`, `rpt_product_trends`, `rpt_state_monthly`.
+**Reporting:** `rpt_company_monthly` and `rpt_state_monthly` feed the dashboard.
+`rpt_product_trends` (market-wide product trends with month-over-month and year-over-year
+change) is for analysis only; the dashboard's year-over-year chart follows the company
+filter, so it reads `fct_complaints` directly.
 
 **About "response time":** the public data has no close date, only
 `date_received`, `date_sent_to_company` and a timely-response flag. The pipeline
@@ -65,6 +88,7 @@ all history.
 | `dbt/` | Staging → intermediate → marts, snapshot, seeds, macros, singular tests |
 | `airflow/` | `cfpb_daily` DAG and Docker image (Airflow 3 + isolated dbt virtualenv) |
 | `dashboard/` | Streamlit app reading the marts |
+| `.streamlit/` | Dashboard theme (light and dark) |
 | `.github/workflows/` | CI (lint, tests, dbt parse, PR dbt build) and docs deployment |
 
 ## Getting started
@@ -105,6 +129,8 @@ cd dbt && DBT_PROFILES_DIR=. dbt deps && DBT_PROFILES_DIR=. dbt build --target p
 docker compose up --build -d     # Airflow UI at http://127.0.0.1:8080
 streamlit run dashboard/app.py   # dashboard at http://localhost:8501
 ```
+
+Start the dashboard from the repo root so it picks up the theme in `.streamlit/config.toml`.
 
 The Airflow admin password is generated on first start. Read it with
 `docker compose exec airflow cat /opt/airflow/simple_auth_manager_passwords.json.generated`.

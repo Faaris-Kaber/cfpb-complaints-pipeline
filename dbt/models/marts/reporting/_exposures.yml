@@ -12,7 +12,6 @@ exposures:
       name: Faaris Kaber
     depends_on:
       - ref('rpt_company_monthly')
-      - ref('rpt_product_trends')
       - ref('rpt_state_monthly')
       - ref('fct_complaints')
       - ref('dim_company')

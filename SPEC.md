@@ -188,10 +188,10 @@ dbt-core with dbt-snowflake, plus `dbt_utils` and `dbt_expectations`.
 | `dim_geography` | state + ZIP3 | state_name, census_region, state_population_2020 |
 | `dim_submission_channel` | channel | channel, is_digital |
 
-**Reporting** (what the dashboard reads)
-- `rpt_company_monthly`: parent company × month (legal entities rolled up through `dim_company`): complaints, timely %, relief %, median days to forward and to close.
-- `rpt_product_trends`: product group × month with prior-month and prior-year counts (joined by calendar month) and YoY %.
-- `rpt_state_monthly`: state × month: complaints and bank complaints, with population for per-capita rates.
+**Reporting**
+- `rpt_company_monthly` (dashboard): parent company × month (legal entities rolled up through `dim_company`): complaints, timely %, relief %, median days to forward and to close.
+- `rpt_state_monthly` (dashboard): state × month: complaints and bank complaints, with population for per-capita rates.
+- `rpt_product_trends` (analysis only, not read by the dashboard): market-wide product group × month with prior-month and prior-year counts (joined by calendar month) and YoY %. The dashboard's year-over-year chart follows the company filter, so it queries `fct_complaints` directly instead.
 
 > **Response-time caveat:** the public data has no company response date, only `date_received`, `date_sent_to_company` and a `timely` flag. The dashboard shows (a) the **timely response rate**, which covers all history, and (b) **observed days to close** from the daily snapshot, which only exists from the day the pipeline started and is labeled as such.
 
@@ -202,14 +202,14 @@ dbt-core with dbt-snowflake, plus `dbt_utils` and `dbt_expectations`.
 
 ---
 
-## 6. Data quality: 66 dbt tests
+## 6. Data quality: 67 dbt tests
 
 | Layer | Tests | What they check |
 |---|---|---|
 | Seeds | 5 | unique and not-null keys, accepted company types |
 | Staging | 13 | unique/not-null `complaint_id`; required fields; accepted values for `company_response` and `submitted_via`; 2-letter state codes; date sanity; fact and staging row counts match; daily-volume anomaly check |
 | Intermediate | 10 | unique keys; resolution categories; `days_to_forward` range; close date after first-seen-open date |
-| Dimensions | 15 | unique and not-null surrogate keys; unique parent company; product group present |
+| Dimensions | 16 | unique and not-null surrogate keys; unique legal name per company row; parent company present; product group present |
 | Fact | 16 | unique/not-null PK; not-null and `relationships` tests for all 6 FKs; accepted resolution categories; non-negative days to close |
 | Reporting | 6 | unique grain per table; rates between 0 and 1; population present |
 | Singular | 1 | at least 90% of complaints map to a known company |
@@ -259,21 +259,27 @@ extract_to_s3 ─► load_to_snowflake ─► dbt_source_freshness ─► dbt_bu
 
 ## 9. Dashboard (Streamlit)
 
-- Connects to `ANALYTICS.PROD` as `CFPB_DASHBOARD` (role `REPORTER`) through `st.connection("snowflake")`. Queries are cached for an hour.
-- Reads only the star schema and `rpt_*` tables.
+- Connects to `ANALYTICS.PROD` as `CFPB_DASHBOARD` (role `REPORTER`) through `st.connection("snowflake")`. Queries are cached for an hour. Needs Streamlit 1.66+.
+- Reads only the star schema and `rpt_company_monthly` / `rpt_state_monthly`.
+- Theme in `.streamlit/config.toml` (repo root): Inter, one blue accent, hairline borders, separate light and dark palettes. The 8 chart colors were checked with a colorblind-safety validator in both modes. No Deploy button or developer menu.
 
-| Section | Visual |
+**Filters (sidebar).** These scope every chart except the map, which shows all banks or all companies and says so.
+- **Period:** presets 12M / 24M / YTD / All, plus a Custom range toggle with From/To months.
+- **Company type:** Banks or All companies. One option is always selected.
+- **Companies:** a dropdown checklist ranked by complaints in the period, with Top 5 / Top 8 / Clear shortcuts. Up to 8 companies (one per chart color), top 5 by default. A company keeps its color while selected, so changing the selection never repaints other lines. If a filter change leaves nothing selected, the top 5 are re-picked unless the user cleared the list on purpose.
+
+**Layout.** A header with the period, the company count and a "Data through" badge. Below it, four KPI cards, then three tabs. Every chart card has a **Data** popover with the underlying table.
+
+| Area | Content |
 |---|---|
-| KPI row | Complaints in range, last complete month vs prior, timely response %, relief % |
-| Trends | Monthly complaints per company (complete months only) |
-| Leaderboard | Complaints, timely %, relief %, and median observed days to close once data exists |
-| Products by company | Heatmap of complaint counts by product group |
-| Top issues | Top 10 issues for a chosen company |
-| Year over year | YoY % change by product group for the last complete month |
-| Geography | Complaints per 100k residents by state |
+| KPI cards | Complaints (12-month sparkline); latest complete month with the change vs the prior month (12-month bars); timely response %; closed-with-relief %. All cards are the same height. |
+| Overview | Monthly complaints per company. Complete months only, months with no complaints count as zero, markers when the range is short. Below it, a scorecard: complaints, timely %, relief % (bar), % still in progress, and median days to close once observed. Company names wear their line color. |
+| Products & issues | Product mix heatmap (share of each company's complaints by default, or counts), top 10 issues across the selected companies, and year-over-year change by product for the latest complete month for the selected companies (red = more, gray = fewer, products with fewer than 50 complaints a year earlier left out). |
+| Geography | Complaints per 100k residents by state. The color scale is capped at the 95th percentile so DC doesn't wash out the rest. A top-10 table sits beside the map. |
 
-**Filters:** month range, banks-only toggle, companies (defaults to the top 10).
-**Deploy:** Streamlit Community Cloud from `dashboard/app.py`, with the Snowflake key in the app's secrets.
+Months count as complete based on the latest loaded data, not the server clock. Empty results (a partial month only, no prior-year data) show a message instead of a blank chart.
+
+**Deploy:** Streamlit Community Cloud from `dashboard/app.py`, with the Snowflake key in the app's secrets (see README).
 
 ---
 
@@ -296,7 +302,7 @@ extract_to_s3 ─► load_to_snowflake ─► dbt_source_freshness ─► dbt_bu
 | M2 | Backfill | Done: 18,504,768 complaints |
 | M3 | Incremental extractor | Done: watermark, daily 30-day + weekly 90-day re-pull, staged partition swaps, 24 pytest tests |
 | M4 | dbt staging and intermediate | Done |
-| M5 | Star schema and snapshot | Done: 66 tests, prod build green |
+| M5 | Star schema and snapshot | Done: 67 tests, prod build green |
 | M6 | CI and docs | Done: CI green; docs live on GitHub Pages |
 | M7 | Airflow DAG | Scheduled and manual runs succeed; unattended daily runs need the pipeline IAM user's access key (§3.4) |
 | M8 | Dashboard | Runs locally; deploying to Streamlit Community Cloud needs the owner's account |
