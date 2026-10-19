@@ -1,4 +1,6 @@
--- Grain: product group x month, with year-over-year change.
+-- Grain: product group x month, with month-over-month and year-over-year comparisons.
+-- Prior periods are joined by calendar month rather than lag(), so a product group
+-- with a missing month still compares against the right month.
 with monthly as (
 
     select
@@ -13,10 +15,18 @@ with monthly as (
 )
 
 select
-    product_group,
-    month,
-    complaints,
-    lag(complaints) over (partition by product_group order by month)     as complaints_prev_month,
-    lag(complaints, 12) over (partition by product_group order by month) as complaints_prev_year,
-    div0(complaints - complaints_prev_year, complaints_prev_year)        as yoy_change_pct
-from monthly
+    cur.product_group,
+    cur.month,
+    cur.complaints,
+    prev_month.complaints                                             as complaints_prev_month,
+    prev_year.complaints                                              as complaints_prev_year,
+    div0(cur.complaints - prev_year.complaints, prev_year.complaints) as yoy_change_pct
+from monthly as cur
+left join monthly as prev_month
+    on
+        cur.product_group = prev_month.product_group
+        and prev_month.month = dateadd('month', -1, cur.month)
+left join monthly as prev_year
+    on
+        cur.product_group = prev_year.product_group
+        and prev_year.month = dateadd('year', -1, cur.month)

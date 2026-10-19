@@ -78,12 +78,18 @@ models:
         data_tests: [unique, not_null]
 
   - name: dim_company
-    description: Parent company dimension (legal entities rolled up via the company_reference seed).
+    description: >
+      One row per legal-entity name as it appears in CFPB data, with its parent brand
+      and company type from the company_reference seed. Remapping a company in the seed
+      changes these attributes without changing any keys stored in fct_complaints.
     columns:
       - name: company_key
         data_tests: [unique, not_null]
-      - name: parent_company
+      - name: legal_name
         data_tests: [unique, not_null]
+      - name: parent_company
+        description: Parent brand used for reporting; falls back to the legal name when unmapped.
+        data_tests: [not_null]
 
   - name: dim_product
     description: Product / sub-product, with a product_group that is stable across CFPB taxonomy changes.

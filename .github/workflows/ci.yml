@@ -37,6 +37,10 @@ jobs:
     if: github.event_name == 'pull_request' && vars.SNOWFLAKE_ENABLED == 'true'
     needs: python
     runs-on: ubuntu-latest
+    # actions: read lets the job download the prod manifest artifact from docs.yml.
+    permissions:
+      contents: read
+      actions: read
     env:
       DBT_PROFILES_DIR: .
       DBT_TARGET: dev

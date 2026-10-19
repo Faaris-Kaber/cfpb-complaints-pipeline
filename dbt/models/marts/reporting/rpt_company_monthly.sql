@@ -18,18 +18,27 @@ c as (
 
     select
         company_key,
-        parent_company,
-        company_type,
-        is_bank
+        parent_company
     from {{ ref('dim_company') }}
+
+),
+
+-- dim_company is per legal entity; roll its attributes up to the parent brand.
+parents as (
+
+    select
+        parent_company,
+        max(company_type)   as company_type,
+        boolor_agg(is_bank) as is_bank
+    from {{ ref('dim_company') }}
+    group by parent_company
 
 )
 
 select
-    c.company_key,
-    c.parent_company,
-    c.company_type,
-    c.is_bank,
+    p.parent_company,
+    p.company_type,
+    p.is_bank,
     d.month_start                                               as month,
     count(*)                                                    as complaints,
     count_if(f.is_timely_response)                              as timely_responses,
@@ -45,4 +54,5 @@ select
 from f
 inner join d on f.date_received_key = d.date_key
 inner join c on f.company_key = c.company_key
-group by all
+inner join parents as p on c.parent_company = p.parent_company
+group by p.parent_company, p.company_type, p.is_bank, d.month_start

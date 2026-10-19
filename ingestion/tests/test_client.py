@@ -1,6 +1,7 @@
 from datetime import date
 
 import pytest
+import requests
 import responses
 from responses import matchers
 
@@ -65,6 +66,15 @@ def test_retries_on_429_then_succeeds():
     rows = list(client.fetch_range(date(2026, 10, 5), date(2026, 10, 5)))
     assert len(rows) == 1
     assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_retries_truncated_response():
+    responses.get(API_URL, body=requests.exceptions.ChunkedEncodingError("connection broken"))
+    responses.get(API_URL, json=make_page([make_hit(1, "2026-10-05")], total=1))
+    client = CFPBClient(page_size=2)
+    _no_sleep(client)
+    assert len(list(client.fetch_range(date(2026, 10, 5), date(2026, 10, 5)))) == 1
 
 
 @responses.activate

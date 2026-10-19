@@ -33,10 +33,21 @@ class CFPBAPIError(RuntimeError):
     pass
 
 
+# Transient transport problems: dropped connections, timeouts, and bodies that arrive
+# truncated or garbled (which surface as chunked/decoding/JSON errors).
+RETRYABLE_ERRORS = (
+    requests.ConnectionError,
+    requests.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+    requests.exceptions.ContentDecodingError,
+    requests.exceptions.JSONDecodeError,
+)
+
+
 def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, requests.HTTPError) and exc.response is not None:
         return exc.response.status_code in RETRYABLE_STATUS
-    return isinstance(exc, (requests.ConnectionError, requests.Timeout))
+    return isinstance(exc, RETRYABLE_ERRORS)
 
 
 class CFPBClient:

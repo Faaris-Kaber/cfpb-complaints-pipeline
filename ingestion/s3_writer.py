@@ -11,16 +11,46 @@ from collections.abc import Iterable
 log = logging.getLogger(__name__)
 
 
-def clear_prefix(s3, bucket: str, prefix: str) -> int:
-    """Delete every object under `prefix`, so a re-run replaces the partition."""
+def list_keys(s3, bucket: str, prefix: str) -> list[str]:
+    keys: list[str] = []
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+        keys += [o["Key"] for o in page.get("Contents", [])]
+    return keys
+
+
+def delete_keys(s3, bucket: str, keys: list[str]) -> int:
+    """Delete keys in batches of 1000. delete_objects returns HTTP 200 even when some
+    keys fail, so check its Errors list instead of assuming success."""
     deleted = 0
-    paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        keys = [{"Key": o["Key"]} for o in page.get("Contents", [])]
-        if keys:
-            s3.delete_objects(Bucket=bucket, Delete={"Objects": keys})
-            deleted += len(keys)
+    for i in range(0, len(keys), 1000):
+        batch = [{"Key": k} for k in keys[i : i + 1000]]
+        resp = s3.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+        errors = resp.get("Errors")
+        if errors:
+            raise RuntimeError(f"S3 delete failed for {len(errors)} keys: {errors[:3]}")
+        deleted += len(resp.get("Deleted", batch))
     return deleted
+
+
+def publish_partition(s3, bucket: str, staged_keys: list[str], dest_prefix: str) -> list[str]:
+    """Move fully written files from a staging prefix into `dest_prefix`.
+
+    Copies each staged file over its final key first, then deletes final keys that are
+    no longer part of the partition, then the staged copies. If anything fails before
+    this point the existing partition is untouched.
+    """
+    dest_prefix = dest_prefix.rstrip("/")
+    final_keys = []
+    for key in staged_keys:
+        final = f"{dest_prefix}/{key.rsplit('/', 1)[-1]}"
+        s3.copy_object(Bucket=bucket, Key=final, CopySource={"Bucket": bucket, "Key": key})
+        final_keys.append(final)
+    stale = [k for k in list_keys(s3, bucket, dest_prefix + "/") if k not in set(final_keys)]
+    if stale:
+        delete_keys(s3, bucket, stale)
+        log.info("removed %d stale objects from %s/", len(stale), dest_prefix)
+    delete_keys(s3, bucket, staged_keys)
+    return final_keys
 
 
 def write_ndjson_gz(

@@ -31,14 +31,27 @@ def in_list(values: list[str]) -> tuple[str, tuple]:
     return ", ".join(["?"] * len(values)), tuple(values)
 
 
+def pct_change(new: float, old: float) -> str:
+    """Signed percentage, without the confusing "-0.0%" for tiny changes."""
+    if not old:
+        return "n/a"
+    change = new / old - 1
+    return "0.0%" if abs(change) < 0.0005 else f"{change:+.1%}"
+
+
 # ---------------------------------------------------------------- filters
-bounds = query("select min(month) as lo, max(month) as hi from rpt_company_monthly")
-lo, hi = bounds.loc[0, "lo"], bounds.loc[0, "hi"]
-default_start = max(lo, date(hi.year - 2, hi.month, 1))
+months = query("select distinct month from rpt_company_monthly order by month")["month"].tolist()
+# The current month is still filling up; trends and MoM use complete months only.
+month_to_date = date.today().replace(day=1)
+default_start = months[max(0, len(months) - 25)]
 
 st.sidebar.header("Filters")
-start, end = st.sidebar.slider(
-    "Months", min_value=lo, max_value=hi, value=(default_start, hi), format="MMM YYYY"
+# Whole months only: every section filters on month boundaries, so they always agree.
+start, end = st.sidebar.select_slider(
+    "Months",
+    options=months,
+    value=(default_start, months[-1]),
+    format_func=lambda m: f"{m:%b %Y}",
 )
 banks_only = st.sidebar.toggle("Banks only", value=True)
 
@@ -51,11 +64,13 @@ companies = query(
     """,
     (start, end, banks_only),
 )
-selected = st.sidebar.multiselect(
-    "Companies",
-    options=companies["parent_company"].tolist(),
-    default=companies["parent_company"].head(10).tolist(),
-)
+options = companies["parent_company"].tolist()
+# Keep the user's picks across filter changes (dropping any no longer available).
+if "companies" in st.session_state:
+    st.session_state["companies"] = [c for c in st.session_state["companies"] if c in options]
+else:
+    st.session_state["companies"] = options[:10]
+selected = st.sidebar.multiselect("Companies", options=options, key="companies")
 if not selected:
     st.info("Pick at least one company in the sidebar.")
     st.stop()
@@ -84,22 +99,20 @@ total = int(monthly["complaints"].sum())
 closed = total - int(monthly["in_progress_count"].sum())
 timely_pct = monthly["timely_responses"].sum() / total if total else 0
 relief_pct = monthly["relief_count"].sum() / closed if closed else 0
-# The current month is still filling up; trends and MoM use complete months only.
-month_to_date = date.today().replace(day=1)
+
 complete = monthly[monthly["month"] < month_to_date]
-by_month = complete.groupby("month", as_index=False)["complaints"].sum().sort_values("month")
-mom = (
-    (by_month["complaints"].iloc[-1] / by_month["complaints"].iloc[-2] - 1)
-    if len(by_month) >= 2 and by_month["complaints"].iloc[-2]
-    else None
-)
-mom_label = (
-    f"{by_month['month'].iloc[-1]:%b %Y} vs prior month" if len(by_month) else "Month vs prior"
-)
+complete_months = [m for m in months if start <= m <= end and m < month_to_date]
+# Months with no complaints have no rows in the mart; count them as zero.
+by_month = complete.groupby("month")["complaints"].sum().reindex(complete_months, fill_value=0)
+if len(by_month) >= 2:
+    mom_label = f"{by_month.index[-1]:%b %Y} vs prior month"
+    mom = pct_change(by_month.iloc[-1], by_month.iloc[-2])
+else:
+    mom_label, mom = "Month vs prior", "n/a"
 
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Complaints", f"{total:,}")
-k2.metric(mom_label, f"{mom:+.1%}" if mom is not None else "n/a")
+k2.metric(mom_label, mom)
 k3.metric("Timely response", f"{timely_pct:.1%}")
 k4.metric("Closed with relief", f"{relief_pct:.1%}")
 
@@ -130,7 +143,8 @@ board = (
     .reset_index()
 )
 board["timely_pct"] = board["timely"] / board["complaints"]
-board["relief_pct"] = board["relief"] / (board["complaints"] - board["in_progress"])
+closed_counts = (board["complaints"] - board["in_progress"]).replace(0, pd.NA)
+board["relief_pct"] = board["relief"] / closed_counts
 close_times = query(
     f"""
     select c.parent_company, median(f.days_to_close_observed) as median_days_to_close
@@ -155,7 +169,7 @@ st.dataframe(
     use_container_width=True,
     column_config={
         "parent_company": "Company",
-        "complaints": st.column_config.NumberColumn("Complaints", format="%d"),
+        "complaints": st.column_config.NumberColumn("Complaints", format="localized"),
         "timely_pct": st.column_config.ProgressColumn(
             "Timely response", format="percent", min_value=0, max_value=1
         ),
@@ -165,7 +179,7 @@ st.dataframe(
         "median_days_to_close": st.column_config.NumberColumn(
             "Median days to close*", format="%.0f"
         ),
-        "closes_observed": st.column_config.NumberColumn("Closes observed*", format="%d"),
+        "closes_observed": st.column_config.NumberColumn("Closes observed*", format="localized"),
     },
 )
 if has_close_data:
@@ -181,31 +195,36 @@ else:
     )
 
 # ---------------------------------------------------------------- product x company
+st.subheader("Products by company")
+heat = query(
+    f"""
+    select c.parent_company, p.product_group, count(*) as complaints
+    from fct_complaints f
+    join dim_company c on f.company_key = c.company_key
+    join dim_product p on f.product_key = p.product_key
+    where f.date_received_key between ? and last_day(?) and c.parent_company in ({ph})
+    group by 1, 2
+    """,
+    base_params,
+)
+pivot = heat.pivot_table(
+    index="parent_company", columns="product_group", values="complaints", fill_value=0
+)
+fig = px.imshow(
+    pivot,
+    aspect="auto",
+    color_continuous_scale="Blues",
+    labels={"color": "Complaints", "x": "", "y": ""},
+)
+# Cell labels: "23.1k" for large counts, plain integers below 1,000.
+labels = pivot.map(lambda v: f"{v / 1000:.1f}k" if v >= 1000 else f"{v:.0f}")
+fig.update_traces(text=labels.values, texttemplate="%{text}")
+fig.update_layout(height=120 + 36 * len(pivot), xaxis_tickangle=-30)
+st.plotly_chart(fig, use_container_width=True)
+
 left, right = st.columns(2)
 
 with left:
-    st.subheader("Products by company")
-    heat = query(
-        f"""
-        select c.parent_company, p.product_group, count(*) as complaints
-        from fct_complaints f
-        join dim_company c on f.company_key = c.company_key
-        join dim_product p on f.product_key = p.product_key
-        where f.date_received_key between ? and last_day(?) and c.parent_company in ({ph})
-        group by 1, 2
-        """,
-        base_params,
-    )
-    pivot = heat.pivot_table(
-        index="parent_company", columns="product_group", values="complaints", fill_value=0
-    )
-    fig = px.imshow(
-        pivot, aspect="auto", color_continuous_scale="Blues", labels={"color": "Complaints"}
-    )
-    fig.update_layout(xaxis_title="", yaxis_title="")
-    st.plotly_chart(fig, use_container_width=True)
-
-with right:
     st.subheader("Top issues")
     focus = st.selectbox("Company", selected)
     issues = query(
@@ -222,6 +241,37 @@ with right:
     fig = px.bar(issues.sort_values("complaints"), x="complaints", y="issue", orientation="h")
     fig.update_layout(xaxis_title="Complaints", yaxis_title="")
     st.plotly_chart(fig, use_container_width=True)
+
+with right:
+    yoy_month = max((m for m in complete_months), default=None)
+    st.subheader("Year over year by product")
+    if yoy_month is None:
+        st.info("Pick a range that includes a complete month.")
+    else:
+        yoy = query(
+            """
+            select product_group, complaints, complaints_prev_year, yoy_change_pct
+            from rpt_product_trends
+            where month = ? and complaints_prev_year > 0
+            order by complaints desc
+            limit 10
+            """,
+            (yoy_month,),
+        )
+        fig = px.bar(
+            yoy.sort_values("yoy_change_pct"),
+            x="yoy_change_pct",
+            y="product_group",
+            orientation="h",
+            labels={
+                "yoy_change_pct": f"{yoy_month:%b %Y} vs {yoy_month:%b} {yoy_month.year - 1}",
+                "product_group": "",
+            },
+            hover_data={"complaints": ":,", "complaints_prev_year": ":,"},
+        )
+        fig.update_layout(xaxis_tickformat="+.0%")
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Top 10 product groups by volume, across all companies.")
 
 # ---------------------------------------------------------------- map
 st.subheader("Complaints per 100k residents")
